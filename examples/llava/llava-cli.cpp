@@ -15,11 +15,15 @@
 
 static bool eval_tokens(struct llama_context * ctx_llama, std::vector<llama_token> tokens, int n_batch, int * n_past) {
     int N = (int) tokens.size();
+    //// Processing the input tokens in batches
     for (int i = 0; i < N; i += n_batch) {
         int n_eval = (int) tokens.size() - i;
         if (n_eval > n_batch) {
             n_eval = n_batch;
         }
+        //// This should be the call to the llama model
+        //// It would appear that the model output is stored in llama_context
+        //// llama_context is defined in llama.cpp and stores a lot of info
         if (llama_decode(ctx_llama, llama_batch_get_one(&tokens[i], n_eval, *n_past, 0))) {
             LOG_ERR("%s : failed to eval. token %d/%d (batch size %d, n_past %d)\n", __func__, i, N, n_batch, *n_past);
             return false;
@@ -35,6 +39,8 @@ static bool eval_id(struct llama_context * ctx_llama, int id, int * n_past) {
     return eval_tokens(ctx_llama, tokens, 1, n_past);
 }
 
+//// Call to llama tokenizer
+//// Haven't found where the tokenizer is initialized
 static bool eval_string(struct llama_context * ctx_llama, const char* str, int n_batch, int * n_past, bool add_bos){
     std::string              str2     = str;
     std::vector<llama_token> embd_inp = ::llama_tokenize(ctx_llama, str2, add_bos, true);
@@ -120,6 +126,10 @@ static void print_usage(int, char ** argv) {
     LOG("\n note: a lower temperature value like 0.1 is recommended for better quality.\n");
 }
 
+//// This might be where the main CLIP model gets called
+//// But I'm really not sure
+//// Yes, this is where the CLIP model is called
+//// The function name really isn't proper for what this function does
 static struct llava_image_embed * load_image(llava_context * ctx_llava, gpt_params * params, const std::string & fname) {
 
     // load and preprocess the image
@@ -153,6 +163,8 @@ static void process_prompt(struct llava_context * ctx_llava, struct llava_image_
 
     std::string system_prompt, user_prompt;
     size_t image_pos = prompt.find("<image>");
+    //// Two different paths for collecting an image
+    //// This CLI requires an image to be given. Text-only is not allowed
     if (image_pos != std::string::npos) {
         // new templating mode: Provide the full prompt including system message and use <image> as a placeholder for the image
         system_prompt = prompt.substr(0, image_pos);
@@ -183,6 +195,7 @@ static void process_prompt(struct llava_context * ctx_llava, struct llava_image_
         }
     }
 
+    // Run the llama model on the system prompt, the image, and the user prompt
     eval_string(ctx_llava->ctx_llama, system_prompt.c_str(), params->n_batch, &n_past, true);
     llava_eval_image_embed(ctx_llava->ctx_llama, image_embed, params->n_batch, &n_past);
     eval_string(ctx_llava->ctx_llama, user_prompt.c_str(), params->n_batch, &n_past, false);

@@ -2846,24 +2846,24 @@ struct llama_model {
 
     std::string name = "n/a";
 
-    llama_hparams hparams = {};
+    llama_hparams hparams = {};  // Configuration parameters
     llama_vocab   vocab;
 
-    struct ggml_tensor * tok_embd;
+    struct ggml_tensor * tok_embd;  // Might be input tensors
     struct ggml_tensor * type_embd;
     struct ggml_tensor * pos_embd;
     struct ggml_tensor * tok_norm;
     struct ggml_tensor * tok_norm_b;
 
-    struct ggml_tensor * output_norm;
+    struct ggml_tensor * output_norm;  // Might be output tensors
     struct ggml_tensor * output_norm_b;
     struct ggml_tensor * output;
     struct ggml_tensor * output_b;
     struct ggml_tensor * output_norm_enc;
 
-    std::vector<llama_layer> layers;
+    std::vector<llama_layer> layers;  // Main weight storage vector
 
-    llama_split_mode split_mode;
+    llama_split_mode split_mode;  // Might be deployment location
     int main_gpu;
     int n_gpu_layers;
 
@@ -6779,6 +6779,8 @@ static void llm_load_print_meta(llama_model_loader & ml, llama_model & model) {
 }
 
 // Returns false if cancelled by progress_callback
+//// Marking this location because it is relevant to understanding
+//// how architectures are defined in llama.cpp
 static bool llm_load_tensors(
         llama_model_loader & ml,
         llama_model & model,
@@ -11181,7 +11183,7 @@ struct llm_build_context {
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
 
         struct ggml_tensor * cur;
-        struct ggml_tensor * inpL;
+        struct ggml_tensor * inpL;    // Marking this because this is the input tensor for BERT
         struct ggml_tensor * inp_pos = nullptr;
 
         if (model.arch != LLM_ARCH_JINA_BERT_V2) {
@@ -11189,6 +11191,7 @@ struct llm_build_context {
         }
 
         // construct input embeddings (token, type, position)
+        // Not sure which one of these is the input data
         inpL = llm_build_inp_embd(ctx0, lctx, hparams, batch, model.tok_embd, cb);
 
         // token types are hardcoded to zero ("Sentence A")
