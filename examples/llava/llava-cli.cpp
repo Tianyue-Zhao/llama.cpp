@@ -287,6 +287,8 @@ int main(int argc, char ** argv) {
 
     gpt_params params;
 
+    // Default batch size appears to be 2048
+    // This is from common/common
     if (!gpt_params_parse(argc, argv, params, LLAMA_EXAMPLE_LLAVA, print_usage)) {
         return 1;
     }

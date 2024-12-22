@@ -230,6 +230,8 @@ void llama_sampler_free(struct llama_sampler * smpl) {
     delete smpl;
 }
 
+// Marking this location because this might be sampling
+// tokens with the stored logits
 llama_token llama_sampler_sample(struct llama_sampler * smpl, struct llama_context * ctx, int32_t idx) {
     const auto * logits = llama_get_logits_ith(ctx, idx);
 
