@@ -24,6 +24,9 @@ static bool eval_tokens(struct llama_context * ctx_llama, std::vector<llama_toke
         //// This should be the call to the llama model
         //// It would appear that the model output is stored in llama_context
         //// llama_context is defined in llama.cpp and stores a lot of info
+        //// The position ids are implied in the batch information
+        //// n_past is the position id of the first token in this batch
+        //// the other tokens have position id that increment by one
         if (llama_decode(ctx_llama, llama_batch_get_one(&tokens[i], n_eval, *n_past, 0))) {
             LOG_ERR("%s : failed to eval. token %d/%d (batch size %d, n_past %d)\n", __func__, i, N, n_batch, *n_past);
             return false;
@@ -34,6 +37,7 @@ static bool eval_tokens(struct llama_context * ctx_llama, std::vector<llama_toke
 }
 
 static bool eval_id(struct llama_context * ctx_llama, int id, int * n_past) {
+    // llama_token is an integer
     std::vector<llama_token> tokens;
     tokens.push_back(id);
     return eval_tokens(ctx_llama, tokens, 1, n_past);
@@ -229,9 +233,13 @@ static void process_prompt(struct llava_context * ctx_llava, struct llava_image_
 }
 
 static struct llama_model * llava_init(gpt_params * params) {
+    // This is a small function in src/llama.cpp
+    // it seems to be initializing a context and then deleting it
+    // I'm not sure why they do so for initialization
     llama_backend_init();
     llama_numa_init(params->numa);
 
+    // This is from common/common
     llama_model_params model_params = llama_model_params_from_gpt_params(*params);
 
     llama_model * model = llama_load_model_from_file(params->model.c_str(), model_params);
@@ -288,7 +296,8 @@ int main(int argc, char ** argv) {
     gpt_params params;
 
     // Default batch size appears to be 2048
-    // This is from common/common
+    // This is from common/arg
+    // Options specifically for LLAVA are defined in that file
     if (!gpt_params_parse(argc, argv, params, LLAMA_EXAMPLE_LLAVA, print_usage)) {
         return 1;
     }
