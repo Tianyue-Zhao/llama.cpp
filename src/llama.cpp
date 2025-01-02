@@ -1496,24 +1496,25 @@ static const std::map<llm_arch, std::map<llm_tensor, std::string>> LLM_TENSOR_NA
     {
         LLM_ARCH_COGVLM,
         {
-            { LLM_TENSOR_TOKEN_EMBD,         "token_embd" },
-            { LLM_TENSOR_OUTPUT_NORM,        "output_norm" },
-            { LLM_TENSOR_ATTN_NORM,          "blk.%d.attn_norm" },  // input_norm_w
-            { LLM_TENSOR_ATTN_TXT_QKV,       "blk.%d.txt_attn_qkv" },  // language_qkv_w
-            { LLM_TENSOR_ATTN_IMG_QKV,       "blk.%d.img_attn_qkv" },  // vision_qkv_w
-            { LLM_TENSOR_ATTN_TXT_DENSE,     "blk.%d.txt_attn_dense" },  // language_dense_w
-            { LLM_TENSOR_ATTN_IMG_DENSE,     "blk.%d.img_attn_dense" },  // vision_dense_w
-            { LLM_TENSOR_ATTN_NORM_2,        "blk.%d.attn_norm_2" },  // self_attn_norm_w
-            { LLM_TENSOR_CROSS_ATTN_Q,       "blk.%d.cross_attn_q" },  // cross_query_w
-            { LLM_TENSOR_CROSS_ATTN_KV,      "blk.%d.cross_attn_kv" },  // cross_query_kv
-            { LLM_TENSOR_CROSS_ATTN_DENSE,   "blk.%d.cross_attn_dense" },  // cross_dense_w
-            { LLM_TENSOR_FFN_NORM,           "blk.%d.ffn_norm" },  // attn_norm_w
-            { LLM_TENSOR_FFN_TXT_UP,         "blk.%d.ffn_txt_up" },  // language_up_proj_w
-            { LLM_TENSOR_FFN_TXT_GATE,       "blk.%d.ffn_txt_gate" },  // language_gate_proj_w
-            { LLM_TENSOR_FFN_TXT_DOWN,       "blk.%d.ffn_txt_down" },  // language_down_proj_w
-            { LLM_TENSOR_FFN_IMG_UP,         "blk.%d.ffn_img_up" },  // vision_up_proj_w
-            { LLM_TENSOR_FFN_IMG_GATE,       "blk.%d.ffn_img_gate" },  // vision_gate_proj_w
-            { LLM_TENSOR_FFN_IMG_DOWN,       "blk.%d.ffn_img_down" }  // vision_down_proj_w
+            { LLM_TENSOR_TOKEN_EMBD,         "embed_tokens" },
+            { LLM_TENSOR_OUTPUT_NORM,        "norm" },
+            { LLM_TENSOR_OUTPUT,             "lm_head" },
+            { LLM_TENSOR_ATTN_NORM,          "layers.%d.input_layernorm" },  // input_norm_w
+            { LLM_TENSOR_ATTN_TXT_QKV,       "layers.%d.self_attn.language_expert_query_key_value" },  // language_qkv_w
+            { LLM_TENSOR_ATTN_IMG_QKV,       "layers.%d.self_attn.vision_expert_query_key_value" },  // vision_qkv_w
+            { LLM_TENSOR_ATTN_TXT_DENSE,     "layers.%d.self_attn.language_expert_dense" },  // language_dense_w
+            { LLM_TENSOR_ATTN_IMG_DENSE,     "layers.%d.self_attn.vision_expert_dense" },  // vision_dense_w
+            { LLM_TENSOR_ATTN_NORM_2,        "layers.%d.post_cross_attention_layernorm" },  // self_attn_norm_w
+            { LLM_TENSOR_CROSS_ATTN_Q,       "layers.%d.cross_attn.query" },  // cross_query_w
+            { LLM_TENSOR_CROSS_ATTN_KV,      "layers.%d.cross_attn.key_value" },  // cross_query_kv
+            { LLM_TENSOR_CROSS_ATTN_DENSE,   "layers.%d.cross_attn.dense" },  // cross_dense_w
+            { LLM_TENSOR_FFN_NORM,           "layers.%d.post_attention_layernorm" },  // attn_norm_w
+            { LLM_TENSOR_FFN_TXT_UP,         "layers.%d.mlp.language_mlp.up_proj" },  // language_up_proj_w
+            { LLM_TENSOR_FFN_TXT_GATE,       "layers.%d.mlp.language_mlp.gate_proj" },  // language_gate_proj_w
+            { LLM_TENSOR_FFN_TXT_DOWN,       "layers.%d.mlp.language_mlp.down_proj" },  // language_down_proj_w
+            { LLM_TENSOR_FFN_IMG_UP,         "layers.%d.mlp.vision_mlp.up_proj" },  // vision_up_proj_w
+            { LLM_TENSOR_FFN_IMG_GATE,       "layers.%d.mlp.vision_mlp.gate_proj" },  // vision_gate_proj_w
+            { LLM_TENSOR_FFN_IMG_DOWN,       "layers.%d.mlp.vision_mlp.down_proj" }  // vision_down_proj_w
         },
     },
     {
@@ -3333,8 +3334,6 @@ struct llama_context {
     struct llama_cparams        cparams;
     struct llama_sbatch         sbatch;
     struct llama_kv_cache       kv_self;  // Marking because this is the KV cache
-    std::vector<struct ggml_tensor *> cached_cross_k;  // Cached result of cross vision
-    std::vector<struct ggml_tensor *> cached_cross_v;  // encoder output mapped with K and V
     struct llama_control_vector cvec;
 
     std::unordered_map<struct llama_lora_adapter *, float> lora_adapters;
@@ -3419,8 +3418,27 @@ struct llama_context {
     struct ggml_tensor * inp_cross_enc;  // Picture after encoding by cross vision encoder
     // Storage for encoded picture before graph is allocated
     std::vector<float> inp_cross_data;
+    std::vector<struct ggml_tensor *> cached_cross_k;  // Cached result of cross vision
+    std::vector<struct ggml_tensor *> cached_cross_v;  // encoder output mapped with K and V
+    std::vector<std::vector<float>> cross_k_data;
+    std::vector<std::vector<float>> cross_v_data;
+    bool collect_cached_kv = false;
     bool mm_currently_processing_text;
+    struct ggml_tensor * debug_intermediate;
 };
+
+void set_processing_text(llama_context * ctx, bool value) {
+    ctx->mm_currently_processing_text = value;
+}
+
+void set_cross_input(llama_context * ctx, std::vector<float> &value) {
+    ctx->inp_cross_data = value;
+}
+
+void clear_cross_kv(llama_context * ctx) {
+    ctx->cross_k_data.clear();
+    ctx->cross_v_data.clear();
+}
 
 struct llama_lora_weight {
     struct ggml_tensor * a = nullptr;
@@ -6996,6 +7014,7 @@ static bool llm_load_tensors(
         const int64_t n_expert      = hparams.n_expert;       // Appears to be experts on MLP. Probably 0 for CogAgent
         const int64_t n_expert_used = hparams.n_expert_used;
         const int64_t n_ctx_train   = hparams.n_ctx_train;
+        const int64_t n_embd_cross  = hparams.n_embd_cross;
 
         if (n_expert > 0 && hparams.n_expert_used == 0) {
             throw std::runtime_error("model has expert layers but no expert layers are used");
@@ -8742,9 +8761,11 @@ static bool llm_load_tensors(
 
                     model.output_norm = ml.create_tensor(ctx_input, tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd});
 
+                    model.output = ml.create_tensor(ctx_output, tn(LLM_TENSOR_OUTPUT, "weight"), {n_embd, n_vocab});
+
                     // Not supporting ctx_split
                     for (int i=0; i < n_layer; i++) {
-                        ggml_context * ctx_layer = ctx_layer(i);
+                        ggml_context * ctx_layer = ctx_for_layer(i);
 
                         auto & layer = model.layers[i];
 
@@ -15908,6 +15929,7 @@ struct llm_build_context {
 
         // I'm taking this to mean number of dimensions per head
         const int64_t n_embd_head = hparams.n_embd_head_k;
+        const int64_t num_heads = hparams.n_head();
 
         struct ggml_tensor * cur;
         struct ggml_tensor * inpL;
@@ -15916,23 +15938,29 @@ struct llm_build_context {
 
         // It's really D, L, B but it's 2D here because
         // there is one picture with each prompt
-        lctx.inp_cross_enc = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, 1024, 6400);
-        ggml_set_input(lctx.inp_cross_enc);
+        if (lctx.cross_k_data.size() < n_layer) {
+            lctx.inp_cross_enc = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, 1024, 6400);
+            ggml_set_input(lctx.inp_cross_enc);
+            lctx.collect_cached_kv = true;
+        } else {
+            lctx.collect_cached_kv = false;
+        }
+        lctx.cached_cross_k.clear();
+        lctx.cached_cross_v.clear();
 
         // inp_pos - contains the positions
         struct ggml_tensor * inp_pos = build_inp_pos();
 
-        // Saving this for later.
-        // I'm not sure where the mask itself is given values
-        // it doesn't appear to be in this function
+        // KQ mask is given values in llama_set_inputs
         struct ggml_tensor * KQ_mask = build_inp_KQ_mask();
 
         // Multiplied directly to Q
         const float kq_scale = 1.0f / sqrtf(float(n_embd_head));
+        const float cross_attn_scale = 1.0f / sqrtf(float(hparams.n_embd_cross / hparams.n_head()));
 
         struct ggml_tensor * inpSA = inpL;
         for (int il = 0; il < n_layer; ++il) {
-            llama_layer &cur_layer = model.layers[il];
+            const llama_layer &cur_layer = model.layers[il];
 
             struct ggml_tensor * self_attn_in = ggml_rms_norm(ctx0, inpSA, hparams.f_norm_rms_eps);
             self_attn_in = ggml_mul(ctx0, self_attn_in, cur_layer.attn_norm);
@@ -15959,6 +15987,15 @@ struct llm_build_context {
             kt = ggml_cont(ctx0, kt);
             vt = ggml_cont(ctx0, vt);
 
+            // Separate into heads
+            // K x H x L x B
+            qt = ggml_view_4d(ctx0, qt, qt->ne[0] / num_heads, num_heads, qt->ne[1], qt->ne[2],
+                qt->ne[0] / num_heads * qt->nb[0], qt->nb[1], qt->nb[2], 0);
+            kt = ggml_view_4d(ctx0, kt, kt->ne[0] / num_heads, num_heads, kt->ne[1], kt->ne[2],
+                kt->ne[0] / num_heads * kt->nb[0], kt->nb[1], kt->nb[2], 0);
+            qt = ggml_cont(ctx0, qt);
+            kt = ggml_cont(ctx0, kt);
+
             qt = ggml_rope(ctx0, qt, inp_pos, 128, 2);
             kt = ggml_rope(ctx0, kt, inp_pos, 128, 2);
 
@@ -15974,22 +16011,36 @@ struct llm_build_context {
             cross_attn_in = ggml_mul(ctx0, cross_attn_in, cur_layer.attn_norm_2);
 
             qt = ggml_mul_mat(ctx0, cur_layer.wq_cross, cross_attn_in);
+            struct ggml_tensor * kt_load;
+            struct ggml_tensor * vt_load;
             // Calculate KT and VT from encoder values if they are not already there
-            if (lctx.cached_cross_k.size() < n_layer) {
+            if (lctx.collect_cached_kv) {
                 struct ggml_tensor * kvt = ggml_mul_mat(ctx0, cur_layer.wkv_cross, lctx.inp_cross_enc);
-                kt = ggml_view_3d(ctx0, kvt, kvt->ne[0] / 2, kvt->ne[1], kvt->ne[2],
+                kt_load = ggml_view_3d(ctx0, kvt, kvt->ne[0] / 2, kvt->ne[1], kvt->ne[2],
                     kvt->nb[1], kvt->nb[2], 0);
-                vt = ggml_view_3d(ctx0, kvt, kvt->ne[0] / 2, kvt->ne[1], kvt->ne[2],
+                vt_load = ggml_view_3d(ctx0, kvt, kvt->ne[0] / 2, kvt->ne[1], kvt->ne[2],
                     kvt->nb[1], kvt->nb[2], kvt->nb[0] * kvt->ne[0] / 2);
-                kt = ggml_cont(ctx0, kt);
-                vt = ggml_cont(ctx0, vt);
-                lctx.cached_cross_k.push_back(kt);
-                lctx.cached_cross_v.push_back(vt);
+                kt_load = ggml_cont(ctx0, kt_load);
+                vt_load = ggml_cont(ctx0, vt_load);
+                ggml_set_output(kt_load);
+                ggml_set_output(vt_load);
             } else {
-                kt = lctx.cached_cross_k[il];
-                vt = lctx.cached_cross_v[il];
+                kt_load = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, 1024, 6400, 1);
+                vt_load = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, 1024, 6400, 1);
+                ggml_set_input(kt_load);
+                ggml_set_input(vt_load);
             }
+            lctx.cached_cross_k.push_back(kt_load);
+            lctx.cached_cross_v.push_back(vt_load);
 
+            // Separate into heads
+            // K x H x L x B
+            qt = ggml_view_4d(ctx0, qt, qt->ne[0] / num_heads, num_heads, qt->ne[1], qt->ne[2],
+                qt->ne[0] / num_heads * qt->nb[0], qt->nb[1], qt->nb[2], 0);
+            kt = ggml_view_4d(ctx0, kt_load, kt_load->ne[0] / num_heads, num_heads, kt_load->ne[1], kt_load->ne[2],
+                kt_load->ne[0] / num_heads * kt_load->nb[0], kt_load->nb[1], kt_load->nb[2], 0);
+            vt = ggml_view_4d(ctx0, vt_load, vt_load->ne[0] / num_heads, num_heads, vt_load->ne[1], vt_load->ne[2],
+                vt_load->ne[0] / num_heads * vt_load->nb[0], vt_load->nb[1], vt_load->nb[2], 0);
             // Switch order of dimensions
             // K x L x H x B
             qt = ggml_permute(ctx0, qt, 0, 2, 1, 3);
@@ -16013,6 +16064,12 @@ struct llm_build_context {
             cur = ggml_mul_mat(ctx0, cur_layer.wdense_cross, attnt);
 
             inpSA = ggml_add(ctx0, inpSA, cur);
+
+            if (il == n_layer - 1) {
+                // skip computing output for unused tokens
+                struct ggml_tensor * inp_out_ids = build_inp_out_ids();
+                inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            }
 
             struct ggml_tensor * mlp_input = ggml_rms_norm(ctx0, inpSA, hparams.f_norm_rms_eps);
             mlp_input = ggml_mul(ctx0, mlp_input, cur_layer.ffn_norm);
@@ -16041,6 +16098,10 @@ struct llm_build_context {
 
         cur = ggml_rms_norm(ctx0, inpSA, hparams.f_norm_rms_eps);
         cur = ggml_mul(ctx0, cur, model.output_norm);
+
+        cur = ggml_mul_mat(ctx0, model.output, cur);
+
+        cb(cur, "result_output", -1);
 
         ggml_build_forward_expand(gf, cur);
         return gf;
@@ -16905,6 +16966,30 @@ static void llama_graph_compute(
     // fprintf(stderr, "splits: %d\n", ggml_backend_sched_get_n_splits(lctx.sched));
 }
 
+void save_tensor_desperate(struct ggml_tensor * input_tensor, std::string filename) {
+    std::string prefix = "/home/tianyue/myworkspace/";
+    filename = prefix + filename;
+    gguf_context * gguf_ctx = gguf_init_empty();
+    gguf_set_val_str(gguf_ctx, "model.architecture", "cogagent");
+    gguf_set_val_u32(gguf_ctx, "general.file_type", GGML_TYPE_F32);
+
+    struct ggml_init_params params = {
+        ggml_nbytes(input_tensor) + 1000000,  // Memory to allocate
+        nullptr,  // Buffer location
+        false,  // Allocate tensor data
+    };
+    struct ggml_context * tensor_ctx = ggml_init(params);
+    struct ggml_tensor * tensor_with_data = ggml_dup(tensor_ctx, input_tensor);
+    ggml_backend_tensor_get(input_tensor, tensor_with_data->data,
+        0, ggml_nbytes(input_tensor));
+
+    ggml_set_name(tensor_with_data, "output_tensor");
+    gguf_add_tensor(gguf_ctx, tensor_with_data);
+    gguf_write_to_file(gguf_ctx, filename.c_str(), false);
+    gguf_free(gguf_ctx);
+    ggml_free(tensor_ctx);
+}
+
 // decode a batch of tokens by evaluating the transformer
 //
 //   - lctx:      llama context
@@ -17090,11 +17175,40 @@ static int llama_decode_internal(
         llama_set_inputs(lctx, ubatch);
 
         if (model.arch == LLM_ARCH_COGVLM) {
-            ggml_backend_tensor_set(lctx.inp_cross_enc, lctx.inp_cross_data,
-                0, ggml_nbytes(lctx.inp_cross_enc));
+            // Copy cached values if they are available
+            if (!lctx.collect_cached_kv) {
+                for (int i=0; i<hparams.n_layer; i++) {
+                    ggml_backend_tensor_set(lctx.cached_cross_k[i], lctx.cross_k_data[i].data(),
+                        0, ggml_nbytes(lctx.cached_cross_k[i]));
+                    ggml_backend_tensor_set(lctx.cached_cross_v[i], lctx.cross_v_data[i].data(),
+                        0, ggml_nbytes(lctx.cached_cross_v[i]));
+                }
+            } else {
+                ggml_backend_tensor_set(lctx.inp_cross_enc, lctx.inp_cross_data.data(),
+                    0, ggml_nbytes(lctx.inp_cross_enc));
+            }
         }
 
         llama_graph_compute(lctx, gf, n_threads, threadpool);
+
+        if (model.arch == LLM_ARCH_COGVLM) {
+            if (lctx.collect_cached_kv) {
+                lctx.cross_k_data.clear();
+                lctx.cross_v_data.clear();
+                for (int i=0; i<hparams.n_layer; i++) {
+                    lctx.cross_k_data.emplace_back();
+                    std::vector<float> &k_data = lctx.cross_k_data.back();
+                    k_data.resize(1024 * 6400);
+                    ggml_backend_tensor_get(lctx.cached_cross_k[i], k_data.data(),
+                        0, ggml_nbytes(lctx.cached_cross_k[i]));
+                    lctx.cross_v_data.emplace_back();
+                    std::vector<float> &v_data = lctx.cross_v_data.back();
+                    v_data.resize(1024 * 6400);
+                    ggml_backend_tensor_get(lctx.cached_cross_v[i], v_data.data(),
+                        0, ggml_nbytes(lctx.cached_cross_v[i]));
+                }
+            }
+        }
 
         // update the kv ring buffer
         {
@@ -19457,6 +19571,7 @@ enum llama_rope_type llama_rope_type(const struct llama_model * model) {
         case LLM_ARCH_DEEPSEEK2:
         case LLM_ARCH_CHATGLM:
         case LLM_ARCH_GRANITE:
+        case LLM_ARCH_COGVLM:
             return LLAMA_ROPE_TYPE_NORM;
 
         // the pairs of head values are offset by n_rot/2

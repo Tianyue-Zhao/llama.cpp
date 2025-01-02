@@ -11,11 +11,16 @@
 #include <cstring>
 #include <vector>
 
+#include "cogagent.h"
+
 cogagent_ctx cogagent_global;
 
-// This function is mostly copied from llava cli
+// This function is mostly copied from cogagent cli
 static bool eval_string_tokens(struct llama_context * ctx_llama, std::vector<llama_token> tokens, int n_batch, int * n_past) {
     int N = (int) tokens.size();
+
+    set_processing_text(ctx_llama, true);
+
     //// Processing the input tokens in batches
     for (int i = 0; i < N; i += n_batch) {
         int n_eval = (int) tokens.size() - i;
@@ -36,6 +41,8 @@ bool eval_image_tokens(llama_context * ctx_llama, std::vector<float> &img_data,
     int n_embd = 4096;
     int num_tokens = 258;
     int positions[258];
+
+    set_processing_text(ctx_llama, false);
 
     positions[0] = *n_past;
     for (int i=0; i<num_tokens-2; i++) {
@@ -59,6 +66,12 @@ bool eval_image_tokens(llama_context * ctx_llama, std::vector<float> &img_data,
     }
     *n_past += 3;
     return true;
+}
+
+static void print_usage(int, char ** argv) {
+    LOG("\n example usage:\n");
+    LOG("\n     %s -m <cogagent-v1.5-7b/ggml-model-q5_k.gguf> --mmproj <cogagent-v1.5-7b/mmproj-model-f16.gguf> --image <path/to/an/image.jpg> --image <path/to/another/image.jpg> [--temp 0.1] [-p \"describe the image in detail.\"]\n", argv[0]);
+    LOG("\n note: a lower temperature value like 0.1 is recommended for better quality.\n");
 }
 
 static const char * sample(struct gpt_sampler * smpl,
@@ -90,9 +103,9 @@ int main(int argc, char ** argv) {
     gpt_init();
 
     llama_backend_init();
-    llama_numa_init(params->numa);
+    llama_numa_init(params.numa);
     llama_model_params model_params = llama_model_params_from_gpt_params(params);
-    llama_model * model = llama_load_model_from_file(params->model.c_str(), model_params);
+    llama_model * model = llama_load_model_from_file(params.model.c_str(), model_params);
     if (model == nullptr) {
         printf("Failed to load decoder model\n");
         return 1;
@@ -108,28 +121,38 @@ int main(int argc, char ** argv) {
     }
 
     cogagent_global.ctx_llama = ctx_llama;
-    cogagent_global.model = model;
+    cogagent_global.cogvlm_model = model;
 
     // Load the image tensors
     std::vector<float> small_encoded_picture;
     const char * small_picture_file = "/home/tianyue/myworkspace/"
-        "vlm_intermediate/reference_vision_encoder_real_image.gguf"
+        "vlm_intermediate/reference_vision_encoder_real_image.gguf";
     get_input(small_encoded_picture, small_picture_file);
 
     std::vector<float> big_encoded_picture;
     const char * big_picture_file = "/home/tianyue/myworkspace/"
-        "vlm_intermediate/reference_cross_vision_encoder_real_image.gguf"
+        "vlm_intermediate/reference_cross_vision_encoder_real_image.gguf";
     get_input(big_encoded_picture, big_picture_file);
 
     // Give the output from the cross vision encoder to the llama context
-    cogagent_global.ctx_llama.inp_cross_data = big_encoded_picture;
+    set_cross_input(cogagent_global.ctx_llama, big_encoded_picture);
+
+    // At the moment I can't figure out how the llama kv cache
+    // keeps its information across runs.
+    // It seems to me that the graph is allocated for each batch,
+    // which would invalidate any tensors stored in the kv cache.
+    // I don't spot logic for separately allocating the kv cache
+    // tensors to avoid this, so it doesn't make sense.
+    // Maybe the graph isn't actually allocated for each batch?
+    // Perhaps that is why a worst case graph is allocated.
 
     // TODO: Check if system prompt is compatible
     std::vector<llama_token> begin_token;
-    begin_token.push_back(cogagent_global.model->vocab.special_bos_id);
+    begin_token.push_back(llama_token_bos(cogagent_global.cogvlm_model));
 
     int n_past = 0;
     printf("Run model with bos token.\n");
+    clear_cross_kv(cogagent_global.ctx_llama);
     eval_string_tokens(cogagent_global.ctx_llama,
         begin_token, params.n_batch, &n_past);
     printf("Run model with image tokens.\n");
@@ -141,7 +164,6 @@ int main(int argc, char ** argv) {
     std::vector<llama_token> user_prompt_tokens = ::llama_tokenize(
         cogagent_global.ctx_llama, params.prompt, false, true
     );
-    user_prompt_tokens.push_back(cogagent_global.model->vocab.special_eos_id);
     printf("Run model with user entered text tokens.\n");
     eval_string_tokens(cogagent_global.ctx_llama, user_prompt_tokens,
         params.n_batch, &n_past);
@@ -149,11 +171,13 @@ int main(int argc, char ** argv) {
     printf("Parsed maximum sampling length %d.\n", params.n_predict);
     int max_len = params.n_predict < 0 ? 256 : params.n_predict;
 
-    struct gpt_sampler * smpl = gpt_sampler_init(cogagent_global.model, params.sparams);
+    struct gpt_sampler * smpl = gpt_sampler_init(cogagent_global.cogvlm_model, params.sparams);
     if (!smpl) {
         printf("Failed to initialize sampler.\n");
         return 1;
     }
+    printf("\nReprinting entered prompt.\n %s \n", params.prompt.c_str());
+    printf("\n\n Beginning of response.\n");
     std::string response = "";
     for (int i=0; i<max_len; ++i) {
         const char * tmp = sample(smpl, cogagent_global.ctx_llama, &n_past);
@@ -161,6 +185,7 @@ int main(int argc, char ** argv) {
         if (strcmp(tmp, "</s>") == 0) {
             break;
         }
+        printf("%s", tmp);
         fflush(stdout);
     }
     gpt_sampler_free(smpl);

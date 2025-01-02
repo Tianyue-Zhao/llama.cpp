@@ -101,7 +101,7 @@ bool vision_encoder_init_load(const char * filename) {
         return false;
     }
 
-    model_ctx.weight_data = ggml_backend_alloc_ctx_tensors(model_ctx.ctx_weight, model_ctx.backend);
+    model_ctx.weight_data = ggml_backend_alloc_ctx_tensors(model_ctx.ctx_weight, cogagent_global.backend);
 
     if (!load_from_gguf(filename, model_ctx.ctx_weight, gguf_ctx)) {
         printf("Loading data from GGUF file failed\n");
@@ -228,7 +228,6 @@ struct ggml_cgraph * vision_encoder_graph() {
     // Linear projection
     struct ggml_tensor * linear_proj = ggml_add(ctx, ggml_repeat(ctx, model.position_embed_2, transformer_output), transformer_output);
     struct ggml_tensor * linear_proj_tmp = ggml_mul_mat(ctx, model.linear_proj_w, linear_proj);
-    model.intermediate = linear_proj_tmp;
     linear_proj = ggml_norm(ctx, linear_proj_tmp, model.layernorm_eps);
     linear_proj = ggml_mul(ctx, ggml_repeat(ctx, model.linear_proj_norm_w, linear_proj), linear_proj);
     linear_proj = ggml_add(ctx, ggml_repeat(ctx, model.linear_proj_norm_b, linear_proj), linear_proj);

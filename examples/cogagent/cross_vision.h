@@ -1,4 +1,5 @@
-#pragma once
+#ifndef CROSS_VISION_H
+#define CROSS_VISION_H
 
 #include "ggml.h"
 #include "ggml-backend.h"
@@ -69,7 +70,7 @@ struct cross_vision_ctx {
     struct ggml_context * ctx_weight;
     struct ggml_context * ctx_compute;
     ggml_backend_buffer_t weight_data;
-    ggml_allocr_t allocr;
+    ggml_gallocr_t allocr;
     cross_vision model;
 };
 
@@ -78,3 +79,5 @@ bool cross_vision_init_load(const char * filename);
 bool run_cross_vision(std::vector<uint8_t> img_data);
 
 bool free_cross_vision_ctx();
+
+#endif

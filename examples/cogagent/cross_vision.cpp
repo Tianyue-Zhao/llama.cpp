@@ -100,7 +100,7 @@ bool cross_vision_init_load(const char * filename) {
     }
 
     // Allocate data storage for the tensors on the backend
-    model_ctx.weight_data = ggml_backend_alloc_ctx_tensors(model_ctx.ctx_weight, model_ctx.backend);
+    model_ctx.weight_data = ggml_backend_alloc_ctx_tensors(model_ctx.ctx_weight, cogagent_global.backend);
 
     if (!load_from_gguf(filename, model_ctx.ctx_weight, gguf_ctx)) {
         printf("Loading data from GGUF file failed\n");
@@ -139,13 +139,14 @@ struct ggml_tensor * compute_rope(cross_vision_ctx &model_ctx, struct ggml_tenso
 
 struct ggml_cgraph * cross_vision_graph() {
     struct ggml_context * ctx = cogagent_global.cross_vision.ctx_compute;
+    cross_vision_ctx &model_ctx = cogagent_global.cross_vision;
     cross_vision &model = cogagent_global.cross_vision.model;
 
     // Set flag to tell allocator to not overwrite the input tensor
     // before it is done with computation
     ggml_set_input(model.input_image);
 
-    ggml_tensor * patch_embedding = ggml_conv_2d(ctx, model.patch_conv_w, input_images,
+    ggml_tensor * patch_embedding = ggml_conv_2d(ctx, model.patch_conv_w, model.input_image,
         14, 14, 0, 0, 1, 1);
     // ggml_repeat should be automatically applied
     // It is required that the tensor to be repeated is the second one

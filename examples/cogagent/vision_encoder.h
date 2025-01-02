@@ -1,4 +1,5 @@
-#pragma once
+#ifndef VISION_ENCODER_H
+#define VISION_ENCODER_H
 
 #include "ggml.h"
 #include "ggml-backend.h"
@@ -37,7 +38,7 @@ struct vision_encoder {
     struct ggml_tensor * patch_conv_b;
     struct ggml_tensor * position_embed_1;
 
-    std::vector<clip_transformer_layer> transformer_layers;
+    std::vector<vision_encoder_layer> transformer_layers;
 
     struct ggml_tensor * position_embed_2;
 
@@ -67,7 +68,7 @@ struct vision_encoder_ctx {
     struct ggml_context * ctx_weight;
     struct ggml_context * ctx_compute;
     ggml_backend_buffer_t weight_data;
-    ggml_allocr_t allocr;
+    ggml_gallocr_t allocr;
     vision_encoder model;
 };
 
@@ -80,3 +81,5 @@ bool run_vision_encoder(std::vector<uint8_t> img_data);
 
 // Free the weights stored for the vision encoder
 bool free_vision_encoder_ctx();
+
+#endif

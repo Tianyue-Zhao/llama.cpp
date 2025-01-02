@@ -19,6 +19,7 @@ BUILD_TARGETS = \
 	llama-imatrix \
 	llama-infill \
 	llama-llava-cli \
+	llama-cogagent-cli \
 	llama-minicpmv-cli\
 	llama-lookahead \
 	llama-lookup \
@@ -1325,23 +1326,6 @@ llama-save-load-state: examples/save-load-state/save-load-state.cpp \
 
 llama-gguf: examples/gguf/gguf.cpp \
 	$(OBJ_GGML)
-	$(CXX) $(CXXFLAGS) -c $< -o $(call GET_OBJ_FILE, $<)
-	$(CXX) $(CXXFLAGS) $(filter-out %.h $<,$^) $(call GET_OBJ_FILE, $<) -o $@ $(LDFLAGS)
-
-examples/gguf-hash/deps/sha1/sha1.o: \
-	examples/gguf-hash/deps/sha1/sha1.c
-	$(CC) $(CFLAGS) -Iexamples/gguf-hash/deps -c $< -o $@
-
-examples/gguf-hash/deps/xxhash/xxhash.o: \
-	examples/gguf-hash/deps/xxhash/xxhash.c
-	$(CC) $(CFLAGS) -Iexamples/gguf-hash/deps -c $< -o $@
-
-examples/gguf-hash/deps/sha256/sha256.o: \
-	examples/gguf-hash/deps/sha256/sha256.c
-	$(CC) $(CFLAGS) -Iexamples/gguf-hash/deps -c $< -o $@
-
-llama-gguf-hash: examples/gguf-hash/gguf-hash.cpp examples/gguf-hash/deps/sha1/sha1.o examples/gguf-hash/deps/xxhash/xxhash.o examples/gguf-hash/deps/sha256/sha256.o\
-	$(OBJ_ALL)
 	$(CXX) $(CXXFLAGS) -Iexamples/gguf-hash/deps -c $< -o $(call GET_OBJ_FILE, $<)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h $<,$^) $(call GET_OBJ_FILE, $<) -o $@ $(LDFLAGS)
 
@@ -1490,6 +1474,21 @@ llama-llava-cli: examples/llava/llava-cli.cpp \
 	examples/llava/llava.h \
 	examples/llava/clip.cpp \
 	examples/llava/clip.h \
+	$(OBJ_ALL)
+	$(CXX) $(CXXFLAGS) $< $(filter-out %.h $<,$^) -o $@ $(LDFLAGS) -Wno-cast-qual
+
+llama-cogagent-cli: examples/cogagent/cogagent-cli.cpp \
+	examples/cogagent/cogagent.h \
+	examples/cogagent/cogagent_util.cpp \
+	examples/cogagent/cogagent_util.h \
+	examples/cogagent/vision_encoder.cpp \
+	examples/cogagent/vision_encoder.h \
+	examples/cogagent/cross_vision.cpp \
+	examples/cogagent/cross_vision.h \
+	examples/cogagent/image_util.cpp \
+	examples/cogagent/image_util.h \
+	common/stb_image.h \
+	common/base64.hpp \
 	$(OBJ_ALL)
 	$(CXX) $(CXXFLAGS) $< $(filter-out %.h $<,$^) -o $@ $(LDFLAGS) -Wno-cast-qual
 

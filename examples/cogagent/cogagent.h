@@ -1,7 +1,10 @@
-#pragma once
+#ifndef COGAGENT_H
+#define COGAGENT_H
 
 #include "vision_encoder.h"
 #include "cross_vision.h"
+#include "cogagent_util.h"
+#include "image_util.h"
 
 struct cogagent_ctx {
     // Vision encoder and cross vision encoder models
@@ -22,3 +25,5 @@ struct cogagent_ctx {
 };
 
 extern cogagent_ctx cogagent_global;
+
+#endif
