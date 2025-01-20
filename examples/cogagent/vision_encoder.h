@@ -68,6 +68,7 @@ struct vision_encoder_ctx {
     struct ggml_context * ctx_weight;
     struct ggml_context * ctx_compute;
     ggml_backend_buffer_t weight_data;
+    ggml_backend_t backend;
     ggml_gallocr_t allocr;
     vision_encoder model;
 };
@@ -77,9 +78,9 @@ bool vision_encoder_init_load(const char * filename);
 
 // Defines a graph and runs the vision encoder
 // Assumes that the picture is of the correct size
-bool run_vision_encoder(std::vector<uint8_t> img_data);
+void run_vision_encoder(std::vector<float> img_data);
 
 // Free the weights stored for the vision encoder
-bool free_vision_encoder_ctx();
+void free_vision_encoder_ctx();
 
 #endif

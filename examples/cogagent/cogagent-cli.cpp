@@ -19,6 +19,7 @@ cogagent_ctx cogagent_global;
 static bool eval_string_tokens(struct llama_context * ctx_llama, std::vector<llama_token> tokens, int n_batch, int * n_past) {
     int N = (int) tokens.size();
 
+    // Set the bit in the llama context
     set_processing_text(ctx_llama, true);
 
     //// Processing the input tokens in batches
@@ -36,7 +37,7 @@ static bool eval_string_tokens(struct llama_context * ctx_llama, std::vector<lla
     return true;
 }
 
-bool eval_image_tokens(llama_context * ctx_llama, std::vector<float> &img_data,
+static bool eval_image_tokens(llama_context * ctx_llama, std::vector<float> &img_data,
         int n_batch, int * n_past) {
     int n_embd = 4096;
     int num_tokens = 258;
@@ -94,6 +95,54 @@ static const char * sample(struct gpt_sampler * smpl,
     return ret.c_str();
 }
 
+static bool run_vision_encoders(const char* vision_encoder_path, const char* image_path) {
+    // Load image and resize for the encoders
+    std::vector<float> small_image_data;  // For vision encoder
+    std::vector<float> large_image_data;  // For cross vision encoder
+    if (!load_and_stretch_image(image_path, cogagent_global.vision_encoder_img_size,
+        small_image_data)) {
+        printf("Failed to load the specified image file.\n");
+        return false;
+    }
+    if (!load_and_stretch_image(image_path, cogagent_global.cross_vision_img_size,
+        large_image_data)) {
+        printf("Failed to load the specified image file.\n");
+        return false;
+    }
+    printf("Loaded and resized the specified image.\n");
+    // Normalize the images
+    normalize_image(small_image_data, cogagent_global.vision_encoder_img_size,
+        cogagent_global.norm_mean, cogagent_global.norm_deviation);
+    normalize_image(large_image_data, cogagent_global.cross_vision_img_size,
+        cogagent_global.norm_mean, cogagent_global.norm_deviation);
+
+    // Load the vision encoder weights
+    if (!vision_encoder_init_load(vision_encoder_path)) {
+        printf("Failed to load vision encoder model file.\n");
+        return false;
+    }
+    printf("Vision encoder weights loaded.\n");
+
+    // Run the vision encoder
+    run_vision_encoder(small_image_data);
+    printf("Completed vision encoder run on image file.\n");
+
+    free_vision_encoder_ctx();
+
+    // Load and run the cross vision encoder
+    if (!cross_vision_init_load(vision_encoder_path)) {
+        printf("Failed to load cross vision encoder model file.\n");
+        return false;
+    }
+    printf("Cross vision encoder weights loaded.\n");
+
+    run_cross_vision(large_image_data);
+    printf("Completed cross vision encoder run on image file.\n");
+
+    free_cross_vision_ctx();
+    return true;
+}
+
 int main(int argc, char ** argv) {
     ggml_time_init();
     gpt_params params;
@@ -104,6 +153,13 @@ int main(int argc, char ** argv) {
 
     llama_backend_init();
     llama_numa_init(params.numa);
+
+    // Load the images and the encoder models
+    // Then run the encoder models
+    if (!run_vision_encoders(params.mmproj.c_str(), params.image[0].c_str())) {
+        return 1;
+    }
+
     llama_model_params model_params = llama_model_params_from_gpt_params(params);
     llama_model * model = llama_load_model_from_file(params.model.c_str(), model_params);
     if (model == nullptr) {
@@ -123,19 +179,8 @@ int main(int argc, char ** argv) {
     cogagent_global.ctx_llama = ctx_llama;
     cogagent_global.cogvlm_model = model;
 
-    // Load the image tensors
-    std::vector<float> small_encoded_picture;
-    const char * small_picture_file = "/home/tianyue/myworkspace/"
-        "vlm_intermediate/reference_vision_encoder_real_image.gguf";
-    get_input(small_encoded_picture, small_picture_file);
-
-    std::vector<float> big_encoded_picture;
-    const char * big_picture_file = "/home/tianyue/myworkspace/"
-        "vlm_intermediate/reference_cross_vision_encoder_real_image.gguf";
-    get_input(big_encoded_picture, big_picture_file);
-
     // Give the output from the cross vision encoder to the llama context
-    set_cross_input(cogagent_global.ctx_llama, big_encoded_picture);
+    set_cross_input(cogagent_global.ctx_llama, cogagent_global.cross_vision_image);
 
     // At the moment I can't figure out how the llama kv cache
     // keeps its information across runs.
@@ -156,7 +201,7 @@ int main(int argc, char ** argv) {
     eval_string_tokens(cogagent_global.ctx_llama,
         begin_token, params.n_batch, &n_past);
     printf("Run model with image tokens.\n");
-    eval_image_tokens(cogagent_global.ctx_llama, small_encoded_picture,
+    eval_image_tokens(cogagent_global.ctx_llama, cogagent_global.vision_encoder_image,
         params.n_batch, &n_past);
     // Tokenize user prompt
     // Third option set to false to that the tokenizer doesn't add

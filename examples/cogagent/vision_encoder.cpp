@@ -12,6 +12,9 @@ bool vision_encoder_init_load(const char * filename) {
     vision_encoder_ctx &model_ctx = cogagent_global.vision_encoder;
     vision_encoder &model = cogagent_global.vision_encoder.model;
 
+    model_ctx.backend = ggml_backend_cpu_init();
+    ggml_backend_cpu_set_n_threads(model_ctx.backend, 16);
+
     // Initialize the GGML contexts
     struct ggml_init_params weight_params {
         10000000,  // Memory size
@@ -56,30 +59,30 @@ bool vision_encoder_init_load(const char * filename) {
 
     int failed_count = 0;
     // D x 1
-    model.cls_embed = get_tensor(model_ctx.ctx_weight, meta, "patch_embedding.cls_embedding", failed_count);
+    model.cls_embed = get_tensor(model_ctx.ctx_weight, meta, "vision.patch_embedding.cls_embedding", failed_count);
 
-    model.patch_conv_w = get_tensor(model_ctx.ctx_weight, meta, "patch_embedding.proj.weight", failed_count);
-    model.patch_conv_b = get_tensor(model_ctx.ctx_weight, meta, "patch_embedding.proj.bias", failed_count);
+    model.patch_conv_w = get_tensor(model_ctx.ctx_weight, meta, "vision.patch_embedding.proj.weight", failed_count);
+    model.patch_conv_b = get_tensor(model_ctx.ctx_weight, meta, "vision.patch_embedding.proj.bias", failed_count);
     model.patch_conv_b = ggml_reshape_3d(model_ctx.ctx_weight, model.patch_conv_b, 1, 1, model.hidden_size);
 
     // D x L
-    model.position_embed_1 = get_tensor(model_ctx.ctx_weight, meta, "patch_embedding.position_embedding.weight", failed_count);
+    model.position_embed_1 = get_tensor(model_ctx.ctx_weight, meta, "vision.patch_embedding.position_embedding.weight", failed_count);
 
     // D x L
-    model.position_embed_2 = get_tensor(model_ctx.ctx_weight, meta, "pos_embed", failed_count);
+    model.position_embed_2 = get_tensor(model_ctx.ctx_weight, meta, "vision.pos_embed", failed_count);
 
-    model.linear_proj_w = get_tensor(model_ctx.ctx_weight, meta, "linear_proj.linear_proj.weight", failed_count);
-    model.linear_proj_norm_w = get_tensor(model_ctx.ctx_weight, meta, "linear_proj.norm1.weight", failed_count);
-    model.linear_proj_norm_b = get_tensor(model_ctx.ctx_weight, meta, "linear_proj.norm1.bias", failed_count);
-    model.gate_proj_w = get_tensor(model_ctx.ctx_weight, meta, "linear_proj.gate_proj.weight", failed_count);
-    model.dense_h_to_4h_w = get_tensor(model_ctx.ctx_weight, meta, "linear_proj.dense_h_to_4h.weight", failed_count);
-    model.dense_4h_to_h_w = get_tensor(model_ctx.ctx_weight, meta, "linear_proj.dense_4h_to_h.weight", failed_count);
+    model.linear_proj_w = get_tensor(model_ctx.ctx_weight, meta, "vision.linear_proj.linear_proj.weight", failed_count);
+    model.linear_proj_norm_w = get_tensor(model_ctx.ctx_weight, meta, "vision.linear_proj.norm1.weight", failed_count);
+    model.linear_proj_norm_b = get_tensor(model_ctx.ctx_weight, meta, "vision.linear_proj.norm1.bias", failed_count);
+    model.gate_proj_w = get_tensor(model_ctx.ctx_weight, meta, "vision.linear_proj.gate_proj.weight", failed_count);
+    model.dense_h_to_4h_w = get_tensor(model_ctx.ctx_weight, meta, "vision.linear_proj.dense_h_to_4h.weight", failed_count);
+    model.dense_4h_to_h_w = get_tensor(model_ctx.ctx_weight, meta, "vision.linear_proj.dense_4h_to_h.weight", failed_count);
 
-    model.boi = get_tensor(model_ctx.ctx_weight, meta, "boi", failed_count);
-    model.eoi = get_tensor(model_ctx.ctx_weight, meta, "eoi", failed_count);
+    model.boi = get_tensor(model_ctx.ctx_weight, meta, "vision.boi", failed_count);
+    model.eoi = get_tensor(model_ctx.ctx_weight, meta, "vision.eoi", failed_count);
 
     for (int i=0; i<model.num_layers; i++) {
-        std::string layer_prefix = "transformer.layers." + std::to_string(i) + ".";
+        std::string layer_prefix = "vision.transformer.layers." + std::to_string(i) + ".";
         model.transformer_layers.emplace_back();
         vision_encoder_layer &cur_layer = model.transformer_layers.back();
         cur_layer.qkv_w = get_tensor(model_ctx.ctx_weight, meta, layer_prefix + "attention.query_key_value.weight", failed_count);
@@ -101,7 +104,7 @@ bool vision_encoder_init_load(const char * filename) {
         return false;
     }
 
-    model_ctx.weight_data = ggml_backend_alloc_ctx_tensors(model_ctx.ctx_weight, cogagent_global.backend);
+    model_ctx.weight_data = ggml_backend_alloc_ctx_tensors(model_ctx.ctx_weight, model_ctx.backend);
 
     if (!load_from_gguf(filename, model_ctx.ctx_weight, gguf_ctx)) {
         printf("Loading data from GGUF file failed\n");
@@ -115,7 +118,7 @@ bool vision_encoder_init_load(const char * filename) {
 
 // This is not declared in the header because it is only intended
 // to be called from run_vision_encoder
-struct ggml_cgraph * vision_encoder_graph() {
+static struct ggml_cgraph * vision_encoder_graph() {
     struct ggml_context * ctx = cogagent_global.vision_encoder.ctx_compute;
     vision_encoder &model = cogagent_global.vision_encoder.model;
 
@@ -139,14 +142,17 @@ struct ggml_cgraph * vision_encoder_graph() {
     // cls token shape: d, 1, b
     // after concatenation: d, l+1, b
     patch_embedding = ggml_reshape_3d(ctx, patch_embedding, patch_embedding->ne[0] * patch_embedding->ne[1], patch_embedding->ne[2], patch_embedding->ne[3]);  // Flatten
+    patch_embedding = ggml_cont(ctx, patch_embedding);
     // d, l, b shape at this point
     // Most layer weights will need reshaping
     patch_embedding = ggml_transpose(ctx, patch_embedding);
+    patch_embedding = ggml_cont(ctx, patch_embedding);
     // Assume cls_embed and position_embed are expanded to have 1 more dimension
     // than original. Assume that these operations can broadcast automatically
     struct ggml_tensor * cls_embed_shape = ggml_new_tensor_3d(ctx, model.cls_embed->type,
         patch_embedding->ne[0], 1, patch_embedding->ne[2]);
     patch_embedding = ggml_concat(ctx, ggml_repeat(ctx, model.cls_embed, cls_embed_shape), patch_embedding, 1);
+    patch_embedding = ggml_cont(ctx, patch_embedding);
     // num_positions in the config is 257, which is 256 + 1
     // 224 x 224 becomes 16 x 16 after convolution with a kernel of 14 x 14
     // 16 x 16 + 1 = 257
@@ -168,6 +174,9 @@ struct ggml_cgraph * vision_encoder_graph() {
             qkv->nb[1], qkv->nb[2], qkv->ne[0] / 3 * qkv->nb[0]);
         struct ggml_tensor * vt = ggml_view_3d(ctx, qkv, qkv->ne[0] / 3, qkv->ne[1], qkv->ne[2],
             qkv->nb[1], qkv->nb[2], 2 * qkv->ne[0] / 3 * qkv->nb[0]);
+        qt = ggml_cont(ctx, qt);
+        kt = ggml_cont(ctx, kt);
+        vt = ggml_cont(ctx, vt);
         qt = ggml_scale(ctx, qt, model.attn_scale);
         // Separate into heads
         // K x H x L x B
@@ -177,6 +186,9 @@ struct ggml_cgraph * vision_encoder_graph() {
             kt->ne[0] / model.num_heads * kt->nb[0], kt->nb[1], kt->nb[2], 0);
         vt = ggml_view_4d(ctx, vt, vt->ne[0] / model.num_heads, model.num_heads, vt->ne[1], vt->ne[2],
             vt->ne[0] / model.num_heads * vt->nb[0], vt->nb[1], vt->nb[2], 0);
+        qt = ggml_cont(ctx, qt);
+        kt = ggml_cont(ctx, kt);
+        vt = ggml_cont(ctx, vt);
         // Switch order of dimensions
         // K x L x H x B
         qt = ggml_permute(ctx, qt, 0, 2, 1, 3);
@@ -247,19 +259,19 @@ struct ggml_cgraph * vision_encoder_graph() {
     return gf;
 }
 
-bool run_vision_encoder(std::vector<uint8_t> img_data) {
+void run_vision_encoder(std::vector<float> img_data) {
     vision_encoder_ctx &model_ctx = cogagent_global.vision_encoder;
     vision_encoder &model = cogagent_global.vision_encoder.model;
 
     // Declare the input image tensor
-    model.input_image = ggml_new_tensor_3d(cogagent_global.vision_encoder.ctx_compute,
-        GGML_TYPE_F32, 224, 224, 3);
+    model.input_image = ggml_new_tensor_3d(cogagent_global.vision_encoder.ctx_compute, GGML_TYPE_F32,
+        cogagent_global.vision_encoder_img_size, cogagent_global.vision_encoder_img_size, 3);
 
     struct ggml_cgraph * gf = vision_encoder_graph();
     ggml_graph_print(gf);
-    printf("Number of nodes in the vision encoder graph is %d\n", ggml_graph_nodes(gf));
+    printf("Number of nodes in the vision encoder graph is %d\n", ggml_graph_n_nodes(gf));
 
-    model_ctx.allocr = ggml_gallocr_new(ggml_backend_get_default_buffer_type(cogagent_global.backend));
+    model_ctx.allocr = ggml_gallocr_new(ggml_backend_get_default_buffer_type(model_ctx.backend));
     ggml_gallocr_reserve(model_ctx.allocr, gf);
     size_t compute_size = ggml_gallocr_get_buffer_size(model_ctx.allocr, 0);
     printf("Allocated %ld bytes of space for graph computation.\n", compute_size);
@@ -268,16 +280,19 @@ bool run_vision_encoder(std::vector<uint8_t> img_data) {
     ggml_backend_tensor_set(model.input_image, img_data.data(), 0, ggml_nbytes(model.input_image));
 
     // Computation result is at model.output_tensor
-    ggml_backend_graph_compute(cogagent_global.backend, gf);
-    return true;
+    ggml_backend_graph_compute(model_ctx.backend, gf);
+
+    cogagent_global.vision_encoder_image.resize(model.output_tensor->ne[0] *
+        model.output_tensor->ne[1]);
+    ggml_backend_tensor_get(model.output_tensor, cogagent_global.vision_encoder_image.data(),
+        0, ggml_nbytes(model.output_tensor));
 }
 
-bool free_vision_encoder_ctx() {
+void free_vision_encoder_ctx() {
     vision_encoder_ctx &model_ctx = cogagent_global.vision_encoder;
 
     ggml_gallocr_free(model_ctx.allocr);
     ggml_backend_buffer_free(model_ctx.weight_data);
     ggml_free(model_ctx.ctx_weight);
     ggml_free(model_ctx.ctx_compute);
-    return true;
 }

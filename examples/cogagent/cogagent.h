@@ -14,16 +14,17 @@ struct cogagent_ctx {
     struct llama_context * ctx_llama;
     struct llama_model * cogvlm_model;
 
-    // I think this will only be for the
-    // vision encoder and cross vision encoder
-    ggml_backend_t backend;
-
     std::string user_prompt;
-    std::vector<uint8_t> image;
-    std::vector<uint8_t> small_image;  // Small image size for vision encoder
-    std::vector<uint8_t> large_image;  // Large image size for cross vision encoder
+    std::vector<float> vision_encoder_image;  // Image encoded by the vision encoder
+    std::vector<float> cross_vision_image;  // Image encoded by the cross vision encoder
+
+    int vision_encoder_img_size = 224;
+    int cross_vision_img_size = 1120;
+
+    float norm_mean[3] = {0.48145466, 0.4578275, 0.40821073};
+    float norm_deviation[3] = {0.26862954, 0.26130258, 0.27577711};
 };
 
-extern cogagent_ctx cogagent_global;
+extern struct cogagent_ctx cogagent_global;
 
 #endif

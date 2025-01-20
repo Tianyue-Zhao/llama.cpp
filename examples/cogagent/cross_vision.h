@@ -70,14 +70,15 @@ struct cross_vision_ctx {
     struct ggml_context * ctx_weight;
     struct ggml_context * ctx_compute;
     ggml_backend_buffer_t weight_data;
+    ggml_backend_t backend;
     ggml_gallocr_t allocr;
     cross_vision model;
 };
 
 bool cross_vision_init_load(const char * filename);
 
-bool run_cross_vision(std::vector<uint8_t> img_data);
+void run_cross_vision(std::vector<float> img_data);
 
-bool free_cross_vision_ctx();
+void free_cross_vision_ctx();
 
 #endif

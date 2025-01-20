@@ -1340,14 +1340,14 @@ gpt_params_context gpt_params_parser_init(gpt_params & params, llama_example ex,
         [](gpt_params & params, const std::string & value) {
             params.mmproj = value;
         }
-    ).set_examples({LLAMA_EXAMPLE_LLAVA}));
+    ).set_examples({LLAMA_EXAMPLE_LLAVA, LLAMA_EXAMPLE_COGAGENT}));
     add_opt(llama_arg(
         {"--image"}, "FILE",
         "path to an image file. use with multimodal models. Specify multiple times for batching",
         [](gpt_params & params, const std::string & value) {
             params.image.emplace_back(value);
         }
-    ).set_examples({LLAMA_EXAMPLE_LLAVA}));
+    ).set_examples({LLAMA_EXAMPLE_LLAVA, LLAMA_EXAMPLE_COGAGENT}));
 #ifdef GGML_USE_RPC
     add_opt(llama_arg(
         {"--rpc"}, "SERVERS",

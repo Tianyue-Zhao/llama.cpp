@@ -12,6 +12,9 @@ bool cross_vision_init_load(const char * filename) {
     cross_vision_ctx &model_ctx = cogagent_global.cross_vision;
     cross_vision &model = cogagent_global.cross_vision.model;
 
+    model_ctx.backend = ggml_backend_cpu_init();
+    ggml_backend_cpu_set_n_threads(model_ctx.backend, 16);
+
     struct ggml_init_params weight_params {
         // Counted 515 tensors in cross vision encoder save file
         10000000,  // Memory size
@@ -55,18 +58,18 @@ bool cross_vision_init_load(const char * filename) {
 
     int failed_count = 0;
 
-    model.patch_conv_w = get_tensor(model_ctx.ctx_weight, meta, "vit.model.patch_embed.proj.weight", failed_count);
-    model.patch_conv_b = get_tensor(model_ctx.ctx_weight, meta, "vit.model.patch_embed.proj.bias", failed_count);
+    model.patch_conv_w = get_tensor(model_ctx.ctx_weight, meta, "cross_vision.vit.model.patch_embed.proj.weight", failed_count);
+    model.patch_conv_b = get_tensor(model_ctx.ctx_weight, meta, "cross_vision.vit.model.patch_embed.proj.bias", failed_count);
     model.patch_conv_b = ggml_reshape_3d(model_ctx.ctx_weight, model.patch_conv_b, 1, 1, model.patch_conv_b->ne[0]);
 
-    model.cls_embed = get_tensor(model_ctx.ctx_weight, meta, "vit.model.cls_token", failed_count);
-    model.pos_embed_1 = get_tensor(model_ctx.ctx_weight, meta, "vit.model.pos_embed", failed_count);
+    model.cls_embed = get_tensor(model_ctx.ctx_weight, meta, "cross_vision.vit.model.cls_token", failed_count);
+    model.pos_embed_1 = get_tensor(model_ctx.ctx_weight, meta, "cross_vision.vit.model.pos_embed", failed_count);
 
-    model.rope_freqs_cos = get_tensor(model_ctx.ctx_weight, meta, "vit.model.rope.freqs_cos", failed_count);
-    model.rope_freqs_sin = get_tensor(model_ctx.ctx_weight, meta, "vit.model.rope.freqs_sin", failed_count);
+    model.rope_freqs_cos = get_tensor(model_ctx.ctx_weight, meta, "cross_vision.vit.model.rope.freqs_cos", failed_count);
+    model.rope_freqs_sin = get_tensor(model_ctx.ctx_weight, meta, "cross_vision.vit.model.rope.freqs_sin", failed_count);
 
     for (int i=0; i<24; i++) {
-        std::string layer_prefix = "vit.model.blocks." + std::to_string(i) + ".";
+        std::string layer_prefix = "cross_vision.vit.model.blocks." + std::to_string(i) + ".";
         model.transformer_layers.emplace_back();
         cross_vision_layer &cur_layer = model.transformer_layers.back();
         cur_layer.norm1_w = get_tensor(model_ctx.ctx_weight, meta, layer_prefix + "norm1.weight", failed_count);
@@ -92,7 +95,7 @@ bool cross_vision_init_load(const char * filename) {
         cur_layer.mlp_linear3_b = get_tensor(model_ctx.ctx_weight, meta, layer_prefix + "mlp.w3.bias", failed_count);
     }
 
-    model.pos_embed_2 = get_tensor(model_ctx.ctx_weight, meta, "pos_embed", failed_count);
+    model.pos_embed_2 = get_tensor(model_ctx.ctx_weight, meta, "cross_vision.pos_embed", failed_count);
 
     if (failed_count > 0) {
         printf("%d tensors could not be found in the model context. Model loading failed.\n", failed_count);
@@ -100,7 +103,7 @@ bool cross_vision_init_load(const char * filename) {
     }
 
     // Allocate data storage for the tensors on the backend
-    model_ctx.weight_data = ggml_backend_alloc_ctx_tensors(model_ctx.ctx_weight, cogagent_global.backend);
+    model_ctx.weight_data = ggml_backend_alloc_ctx_tensors(model_ctx.ctx_weight, model_ctx.backend);
 
     if (!load_from_gguf(filename, model_ctx.ctx_weight, gguf_ctx)) {
         printf("Loading data from GGUF file failed\n");
@@ -112,7 +115,7 @@ bool cross_vision_init_load(const char * filename) {
     return true;
 }
 
-struct ggml_tensor * compute_rope(cross_vision_ctx &model_ctx, struct ggml_tensor *input_tensor) {
+static struct ggml_tensor * compute_rope(cross_vision_ctx &model_ctx, struct ggml_tensor *input_tensor) {
     struct ggml_context * ctx = model_ctx.ctx_compute;
     cross_vision model = model_ctx.model;
     // Don't really think this should be necessary
@@ -137,7 +140,7 @@ struct ggml_tensor * compute_rope(cross_vision_ctx &model_ctx, struct ggml_tenso
     return ggml_add(ctx, cos, sin);
 }
 
-struct ggml_cgraph * cross_vision_graph() {
+static struct ggml_cgraph * cross_vision_graph() {
     struct ggml_context * ctx = cogagent_global.cross_vision.ctx_compute;
     cross_vision_ctx &model_ctx = cogagent_global.cross_vision;
     cross_vision &model = cogagent_global.cross_vision.model;
@@ -255,19 +258,19 @@ struct ggml_cgraph * cross_vision_graph() {
     return gf;
 }
 
-bool run_cross_vision(std::vector<uint8_t> img_data) {
+void run_cross_vision(std::vector<float> img_data) {
     cross_vision_ctx &model_ctx = cogagent_global.cross_vision;
     cross_vision &model = cogagent_global.cross_vision.model;
 
     // Declare the input image tensor
-    model.input_image = ggml_new_tensor_3d(cogagent_global.cross_vision.ctx_compute,
-        GGML_TYPE_F32, 224, 224, 3);
+    model.input_image = ggml_new_tensor_3d(cogagent_global.cross_vision.ctx_compute, GGML_TYPE_F32,
+        cogagent_global.cross_vision_img_size, cogagent_global.cross_vision_img_size, 3);
 
     struct ggml_cgraph * gf = cross_vision_graph();
     ggml_graph_print(gf);
-    printf("Number of nodes in the vision encoder graph is %d\n", ggml_graph_nodes(gf));
+    printf("Number of nodes in the vision encoder graph is %d\n", ggml_graph_n_nodes(gf));
 
-    model_ctx.allocr = ggml_gallocr_new(ggml_backend_get_default_buffer_type(cogagent_global.backend));
+    model_ctx.allocr = ggml_gallocr_new(ggml_backend_get_default_buffer_type(model_ctx.backend));
     ggml_gallocr_reserve(model_ctx.allocr, gf);
     size_t compute_size = ggml_gallocr_get_buffer_size(model_ctx.allocr, 0);
     printf("Allocated %ld bytes of space for graph computation.\n", compute_size);
@@ -276,16 +279,19 @@ bool run_cross_vision(std::vector<uint8_t> img_data) {
     ggml_backend_tensor_set(model.input_image, img_data.data(), 0, ggml_nbytes(model.input_image));
 
     // Computation result is at model.output_tensor
-    ggml_backend_graph_compute(cogagent_global.backend, gf);
-    return true;
+    ggml_backend_graph_compute(model_ctx.backend, gf);
+
+    cogagent_global.cross_vision_image.resize(model.output_tensor->ne[0] *
+        model.output_tensor->ne[1]);
+    ggml_backend_tensor_get(model.output_tensor, cogagent_global.cross_vision_image.data(),
+        0, ggml_nbytes(model.output_tensor));
 }
 
-bool free_cross_vision_ctx() {
+void free_cross_vision_ctx() {
     cross_vision_ctx &model_ctx = cogagent_global.cross_vision;
 
     ggml_gallocr_free(model_ctx.allocr);
     ggml_backend_buffer_free(model_ctx.weight_data);
     ggml_free(model_ctx.ctx_weight);
     ggml_free(model_ctx.ctx_compute);
-    return true;
 }
