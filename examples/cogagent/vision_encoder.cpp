@@ -286,6 +286,8 @@ void run_vision_encoder(std::vector<float> img_data) {
         model.output_tensor->ne[1]);
     ggml_backend_tensor_get(model.output_tensor, cogagent_global.vision_encoder_image.data(),
         0, ggml_nbytes(model.output_tensor));
+    // Added for debugging implementation of encoders
+    save_tensor_filename(model.output_tensor, "cogagent_encoders/vision_encoder_output.gguf");
 }
 
 void free_vision_encoder_ctx() {

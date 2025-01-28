@@ -30,5 +30,5 @@ bool clip_image_load_from_file(const char * fname, struct clip_image_u8 * img);
 
 /** interpret bytes as an image file with length bytes_length, and use the result to populate img */
 bool clip_image_load_from_bytes(const unsigned char * bytes, size_t bytes_length, struct clip_image_u8 * img);
-bool load_and_stretch_image(const char* path, int output_size, std::vector<float> &output_data);
-void normalize_image(std::vector<float> &image_data, int image_size, float * mean, float * deviation);
+bool load_and_stretch_image(const char* path, int output_size, std::vector<float> &output_data,
+                            const float mean[3], const float std[3]);

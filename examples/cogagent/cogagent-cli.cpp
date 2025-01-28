@@ -100,21 +100,16 @@ static bool run_vision_encoders(const char* vision_encoder_path, const char* ima
     std::vector<float> small_image_data;  // For vision encoder
     std::vector<float> large_image_data;  // For cross vision encoder
     if (!load_and_stretch_image(image_path, cogagent_global.vision_encoder_img_size,
-        small_image_data)) {
+        small_image_data, cogagent_global.norm_mean, cogagent_global.norm_deviation)) {
         printf("Failed to load the specified image file.\n");
         return false;
     }
     if (!load_and_stretch_image(image_path, cogagent_global.cross_vision_img_size,
-        large_image_data)) {
+        large_image_data, cogagent_global.norm_mean, cogagent_global.norm_deviation)) {
         printf("Failed to load the specified image file.\n");
         return false;
     }
     printf("Loaded and resized the specified image.\n");
-    // Normalize the images
-    normalize_image(small_image_data, cogagent_global.vision_encoder_img_size,
-        cogagent_global.norm_mean, cogagent_global.norm_deviation);
-    normalize_image(large_image_data, cogagent_global.cross_vision_img_size,
-        cogagent_global.norm_mean, cogagent_global.norm_deviation);
 
     // Load the vision encoder weights
     if (!vision_encoder_init_load(vision_encoder_path)) {

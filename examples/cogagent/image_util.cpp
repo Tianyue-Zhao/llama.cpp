@@ -254,7 +254,9 @@ static void resize_and_pad_image(const clip_image_u8& image, clip_image_u8 &imag
 // without padding the image
 // Assumes that the output size is a square image
 
-bool load_and_stretch_image(const char* path, int output_size, std::vector<float> &output_data) {
+bool load_and_stretch_image(const char* path, int output_size,
+                            std::vector<float> &output_data,
+                            const float mean[3], const float std[3]) {
     unsigned char * image_bytes;  // allocation done by the load_file_to_bytes function
     long image_size;
     if (!load_file_to_bytes(path, &image_bytes, &image_size)) {
@@ -274,6 +276,9 @@ bool load_and_stretch_image(const char* path, int output_size, std::vector<float
     bicubic_resize(*clip_img, resized_image, output_size, output_size);
     clip_image_u8_free(clip_img);
     free(image_bytes);
+    clip_image_f32 float_image;
+
+    normalize_image_u8_to_f32(&resized_image, &float_image, mean, std);
 
     output_data.resize(3 * output_size * output_size);
     for (int c=0; c<3; c++) {
@@ -283,19 +288,9 @@ bool load_and_stretch_image(const char* path, int output_size, std::vector<float
                 // The clip image has the rgb values for a pixel
                 // stored contiguously
                 output_data[c * output_size * output_size
-                    + y * output_size + x] = resized_image.buf[3 * (y * output_size + x) + c];
+                    + y * output_size + x] = float_image.buf[3 * (y * output_size + x) + c];
             }
         }
     }
     return true;
-}
-
-// Assumes that mean and deviation points to arrays of length 3
-void normalize_image(std::vector<float> &image_data, int image_size, float * mean, float * deviation) {
-    for (int c = 0; c < 3; c++) {
-        for (int i = 0; i < image_size * image_size; i++) {
-            float * cur_data = &image_data[c * image_size * image_size + i];
-            *cur_data = (*cur_data - mean[c]) / deviation[c];
-        }
-    }
 }

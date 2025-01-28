@@ -285,6 +285,8 @@ void run_cross_vision(std::vector<float> img_data) {
         model.output_tensor->ne[1]);
     ggml_backend_tensor_get(model.output_tensor, cogagent_global.cross_vision_image.data(),
         0, ggml_nbytes(model.output_tensor));
+
+    save_tensor_filename(model.output_tensor, "cogagent_encoders/cross_vision_output.gguf");
 }
 
 void free_cross_vision_ctx() {
