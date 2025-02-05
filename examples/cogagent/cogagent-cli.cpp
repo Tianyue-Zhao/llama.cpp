@@ -109,6 +109,30 @@ static bool run_vision_encoders(const char* vision_encoder_path, const char* ima
         printf("Failed to load the specified image file.\n");
         return false;
     }
+
+    // For debugging purposes
+    const char * vision_encoder_resized_image = "cogagent_encoders/llama_vision_encoder_input.gguf";
+    int dims[3] = {cogagent_global.vision_encoder_img_size,
+                     cogagent_global.vision_encoder_img_size, 3};
+    save_tensor_from_data(small_image_data, dims, vision_encoder_resized_image);
+    const char * cross_vision_resized_image = "cogagent_encoders/llama_cross_vision_input.gguf";
+    dims[0] = cogagent_global.cross_vision_img_size;
+    dims[1] = cogagent_global.cross_vision_img_size;
+    save_tensor_from_data(large_image_data, dims, cross_vision_resized_image);
+
+    // const char * reference_vision_encoder_input = "/home/tianyue/myworkspace"
+    //     "/vlm_intermediate/vision_encoder_input.gguf";
+    // const char * reference_cross_vision_input = "/home/tianyue/myworkspace"
+    //     "/vlm_intermediate/cross_vision_input.gguf";
+    // // Load the reference input
+    // if (get_input(small_image_data, reference_vision_encoder_input) < 0) {
+    //     printf("Failed to load small image input\n");
+    //     return false;
+    // }
+    // if (get_input(large_image_data, reference_cross_vision_input) < 0) {
+    //     printf("Failed to load big image input\n");
+    //     return false;
+    // }
     printf("Loaded and resized the specified image.\n");
 
     // Load the vision encoder weights
@@ -223,6 +247,9 @@ int main(int argc, char ** argv) {
         const char * tmp = sample(smpl, cogagent_global.ctx_llama, &n_past);
         response += tmp;
         if (strcmp(tmp, "</s>") == 0) {
+            if (i < 10) {
+                continue;
+            }
             break;
         }
         printf("%s", tmp);

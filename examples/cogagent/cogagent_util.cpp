@@ -28,12 +28,37 @@ void save_tensor_filename(struct ggml_tensor * input_tensor, std::string filenam
     struct ggml_init_params params = {
         ggml_nbytes(input_tensor) + 1000000,  // Memory to allocate
         nullptr,  // Buffer location
-        false,  // Allocate tensor data
+        false,  // no_alloc=false, so that tensor data is allocated
     };
     struct ggml_context * tensor_ctx = ggml_init(params);
     struct ggml_tensor * tensor_with_data = ggml_dup(tensor_ctx, input_tensor);
     ggml_backend_tensor_get(input_tensor, tensor_with_data->data,
         0, ggml_nbytes(input_tensor));
+
+    ggml_set_name(tensor_with_data, "output_tensor");
+    gguf_add_tensor(gguf_ctx, tensor_with_data);
+    gguf_write_to_file(gguf_ctx, filename.c_str(), false);
+    gguf_free(gguf_ctx);
+    ggml_free(tensor_ctx);
+}
+
+void save_tensor_from_data(std::vector<float> tensor_data, int* dims, std::string filename) {
+    std::string prefix = "/home/tianyue/myworkspace/";
+    filename = prefix + filename;
+    gguf_context * gguf_ctx = gguf_init_empty();
+    gguf_set_val_str(gguf_ctx, "model.architecture", "cogagent");
+    gguf_set_val_u32(gguf_ctx, "general.file_type", GGML_TYPE_F32);
+
+    struct ggml_init_params params = {
+        tensor_data.size() * sizeof(float) + 1000000,  // Memory to allocate
+        nullptr,  // Buffer location
+        false,  // Allocate tensor data
+    };
+    struct ggml_context * tensor_ctx = ggml_init(params);
+    struct ggml_tensor * tensor_with_data = ggml_new_tensor_3d(tensor_ctx,
+        GGML_TYPE_F32, dims[0], dims[1], dims[2]);
+    // copy the data
+    memcpy(tensor_with_data->data, tensor_data.data(), ggml_nbytes(tensor_with_data));
 
     ggml_set_name(tensor_with_data, "output_tensor");
     gguf_add_tensor(gguf_ctx, tensor_with_data);

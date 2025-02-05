@@ -29,6 +29,8 @@ struct ggml_tensor * get_tensor(struct ggml_context * dst_ctx, struct ggml_conte
 
 void save_tensor_filename(struct ggml_tensor * input_tensor, std::string filename);
 
+void save_tensor_from_data(std::vector<float> tensor_data, int* dims, std::string filename);
+
 bool load_from_gguf(const char * fname, struct ggml_context * ctx_ggml, struct gguf_context * ctx_gguf);
 
 int get_input(
