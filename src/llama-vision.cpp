@@ -688,7 +688,7 @@ struct llama_vision_graph_builder {
         struct ggml_tensor * cur = inpL;
 
         // layernorm1
-        {
+        if (model.hparams.arch != LLM_ARCH_VISION_COGAGENT) {
             cur = ggml_norm(ctx0, cur, eps);
             cur = ggml_add(ctx0,
                 ggml_mul(ctx0, cur, model.layers[il].norm_in_w),
@@ -734,13 +734,20 @@ struct llama_vision_graph_builder {
         // attention output
         cur = ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].output_w, cur), model.layers[il].output_b);
 
+        if (model.hparams.arch == LLM_ARCH_VISION_COGAGENT) {
+            cur = ggml_norm(ctx0, cur, eps);
+            cur = ggml_add(ctx0,
+                ggml_mul(ctx0, cur, model.layers[il].norm_in_w),
+                model.layers[il].norm_in_b);
+        }
+
         // re-add the layer input, e.g., residual
         cur = ggml_add(ctx0, cur, inpL);
 
         inpL = cur; // inpL = residual, cur = hidden_states
 
         // layernorm2
-        {
+        if (model.hparams.arch != LLM_ARCH_VISION_COGAGENT) {
             cur = ggml_norm(ctx0, cur, eps);
             cur = ggml_add(ctx0,
                 ggml_mul(ctx0, cur, model.layers[il].norm_out_w),
@@ -758,6 +765,13 @@ struct llama_vision_graph_builder {
 
         cur = ggml_mul_mat(ctx0, model.layers[il].ffn_down_w, cur);
         cur = ggml_add(ctx0, cur, model.layers[il].ffn_down_b);
+
+        if (model.hparams.arch == LLM_ARCH_VISION_COGAGENT) {
+            cur = ggml_norm(ctx0, cur, eps);
+            cur = ggml_add(ctx0,
+                ggml_mul(ctx0, cur, model.layers[il].norm_out_w),
+                model.layers[il].norm_out_b);
+        }
 
         // residual 2
         cur = ggml_add(ctx0, inpL, cur);
@@ -944,6 +958,36 @@ struct llama_vision_graph_builder {
 
         return gf;
     }
+
+    struct ggml_cgraph * build_cogagent() {
+        struct ggml_cgraph * gf = ggml_new_graph_custom(ctx0, VISION_GRAPH_MAX_NODE, false);
+        struct ggml_tensor * cur = build_vit();
+
+        // TODO: Consider why the models here don't appear to drop
+        // the class embedding token
+        cur = ggml_add(ctx0, cur, model.position_embeddings_2);
+        cur = ggml_mul_mat(ctx0, model.mm_linear_w, cur);
+        cur = ggml_norm(ctx0, cur, eps);
+        cur = ggml_mul(ctx0, cur, model.mm_linear_norm_w);
+        cur = ggml_add(ctx0, cur, model.mm_linear_norm_b);
+        cur = ggml_gelu(ctx0, cur);
+        struct ggml_tensor * gate = ggml_mul_mat(ctx0, model.mm_gate_w, cur);
+        gate = ggml_silu(ctx0, gate);
+        cur = ggml_mul_mat(ctx0, model.mm_up_w, cur);
+        cur = ggml_mul(ctx0, gate, cur);
+        cur = ggml_mul_mat(ctx0, model.mm_down_w, cur);
+
+        // Concatenate the boi and eoi token embeddings
+        struct ggml_tensor * expanded_size = ggml_new_tensor_3d(ctx,
+            cur->type, cur->ne[0], cur->ne[1], cur->ne[2]);
+        cur = ggml_concat(ctx0, ggml_repeat(ctx0, model.mm_boi, expanded_size), cur, 1);
+        cur = ggml_concat(ctx0, cur, ggml_repeat(ctx0, model.mm_eoi, expanded_size), 1);
+
+        ggml_set_name(cur, "output");
+        ggml_build_forward_expand(gf, cur);
+
+        return gf;
+    }
 };
 
 static int32_t llama_vision_encode_impl(llama_vision_context & ctx, const llama_vision_tokens & inp) {
@@ -976,6 +1020,9 @@ static int32_t llama_vision_encode_impl(llama_vision_context & ctx, const llama_
             break;
         case LLM_ARCH_VISION_IDEFICS3:
             gf = builder.build_idefics3();
+            break;
+        case LLM_ARCH_VISION_COGAGENT:
+            gf = builder.build_cogagent();
             break;
         default:
             GGML_ASSERT(false && "unsupported vision arch");

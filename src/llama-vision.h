@@ -56,10 +56,11 @@ struct llama_vision_model {
     ggml_backend_buffer_type_t buft;
 
     // embeddings
-    struct ggml_tensor * class_embedding     = nullptr;
-    struct ggml_tensor * patch_embeddings    = nullptr;
-    struct ggml_tensor * patch_bias          = nullptr;
-    struct ggml_tensor * position_embeddings = nullptr;
+    struct ggml_tensor * class_embedding       = nullptr;
+    struct ggml_tensor * patch_embeddings      = nullptr;
+    struct ggml_tensor * patch_bias            = nullptr;
+    struct ggml_tensor * position_embeddings   = nullptr;
+    struct ggml_tensor * position_embeddings_2 = nullptr;  // CogAgent
 
     struct ggml_tensor * pre_norm_w = nullptr;
     struct ggml_tensor * pre_norm_b = nullptr;
@@ -131,6 +132,16 @@ struct llama_vision_model {
     struct ggml_tensor * mm_model_ln_kv_b     = nullptr;
     struct ggml_tensor * mm_model_ln_post_w   = nullptr;
     struct ggml_tensor * mm_model_ln_post_b   = nullptr;
+
+    // CogAgent projection
+    struct ggml_tensor * mm_linear_w = nullptr;
+    struct ggml_tensor * mm_linear_norm_w = nullptr;
+    struct ggml_tensor * mm_linear_norm_b = nullptr;
+    struct ggml_tensor * mm_gate_w = nullptr;
+    struct ggml_tensor * mm_up_w = nullptr;
+    struct ggml_tensor * mm_down_w = nullptr;
+    struct ggml_tensor * mm_boi = nullptr;
+    struct ggml_tensor * mm_eoi = nullptr;
 
     // special tokens
     struct ggml_tensor * mm_tok_embd_image     = nullptr;
