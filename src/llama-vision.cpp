@@ -978,7 +978,7 @@ struct llama_vision_graph_builder {
         cur = ggml_mul_mat(ctx0, model.mm_down_w, cur);
 
         // Concatenate the boi and eoi token embeddings
-        struct ggml_tensor * expanded_size = ggml_new_tensor_3d(ctx,
+        struct ggml_tensor * expanded_size = ggml_new_tensor_3d(ctx0,
             cur->type, cur->ne[0], cur->ne[1], cur->ne[2]);
         cur = ggml_concat(ctx0, ggml_repeat(ctx0, model.mm_boi, expanded_size), cur, 1);
         cur = ggml_concat(ctx0, cur, ggml_repeat(ctx0, model.mm_eoi, expanded_size), 1);
