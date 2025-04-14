@@ -5022,15 +5022,48 @@ class ChatGLMModel(Model):
 
         from transformers import AutoTokenizer
         tokenizer = AutoTokenizer.from_pretrained(dir_model, trust_remote_code=True)
-        vocab_size = hparams.get("padded_vocab_size",hparams["vocab_size"])
+        if "padded_vocab_size" in hparams:
+            vocab_size = hparams["padded_vocab_size"]
+        else:
+            vocab_size = hparams["vocab_size"]
         assert max(tokenizer.get_vocab().values()) < vocab_size
 
-        tokens, toktypes, tokpre = self.get_vocab_base()
+        tokpre = self.get_vocab_base_pre(tokenizer)
+
+        merges = []
+        vocab = {}
+        mergeable_ranks = tokenizer.mergeable_ranks
+        for token, rank in mergeable_ranks.items():
+            vocab[ChatGLMModel.token_bytes_to_string(token)] = rank
+            if len(token) == 1:
+                continue
+            merged = ChatGLMModel.bpe(mergeable_ranks, token, max_rank=rank)
+            assert len(merged) >= 2 and len(merged) <= 7
+            merges.append(' '.join(map(ChatGLMModel.token_bytes_to_string, merged)))
+
+        # for this kind of tokenizer, added_vocab is not a subset of vocab, so they need to be combined
+        added_vocab = tokenizer.get_added_vocab()
+        reverse_vocab = {id_ : encoded_tok for encoded_tok, id_ in {**vocab, **added_vocab}.items()}
+
+        for i in range(vocab_size):
+            if i not in reverse_vocab:
+                tokens.append(f"[PAD{i}]")
+                toktypes.append(gguf.TokenType.UNUSED)
+            elif reverse_vocab[i] in added_vocab:
+                tokens.append(reverse_vocab[i])
+                if tokenizer.added_tokens_decoder[i].special:
+                    toktypes.append(gguf.TokenType.CONTROL)
+                else:
+                    toktypes.append(gguf.TokenType.USER_DEFINED)
+            else:
+                tokens.append(reverse_vocab[i])
+                toktypes.append(gguf.TokenType.NORMAL)
         self.gguf_writer.add_tokenizer_model("gpt2")
         self.gguf_writer.add_tokenizer_pre(tokpre)
         self.gguf_writer.add_token_list(tokens)
         self.gguf_writer.add_token_types(toktypes)
-        special_vocab = gguf.SpecialVocab(self.dir_model, load_merges=True)
+        special_vocab = gguf.SpecialVocab(dir_model, load_merges=False)
+        special_vocab.merges = merges
         # only add special tokens when they were not already loaded from config.json
         special_vocab._set_special_token("eos", tokenizer.get_added_vocab()["<|endoftext|>"])
         special_vocab._set_special_token("eot", tokenizer.get_added_vocab()["<|user|>"])
@@ -5045,7 +5078,10 @@ class ChatGLMModel(Model):
         self.gguf_writer.add_context_length(self.hparams.get("seq_length", n_embed))
         self.gguf_writer.add_embedding_length(n_embed)
         self.gguf_writer.add_feed_forward_length(self.hparams.get("ffn_hidden_size", self.hparams.get("intermediate_size", 4 * n_embed)))
-        self.gguf_writer.add_block_count(self.hparams.get("num_layers", self.hparams["num_hidden_layers"]))
+        if "num_layers" in self.hparams:
+            self.gguf_writer.add_block_count(self.hparams["num_layers"])
+        else:
+            self.gguf_writer.add_block_count(self.hparams["num_hidden_layers"])
         self.gguf_writer.add_head_count(n_head)
         self.gguf_writer.add_head_count_kv(n_head_kv)
         self.gguf_writer.add_layer_norm_rms_eps(self.hparams.get("layernorm_epsilon",1e-5))
@@ -5064,7 +5100,8 @@ class ChatGLMModel(Model):
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         del bid  # unused
 
-        if name.endswith(".rotary_pos_emb.inv_freq") or name.startswith("model.vision."):
+        if name.endswith(".rotary_pos_emb.inv_freq") or name.startswith("model.vision.")\
+            or name.startswith("transformer.vision."):
             return []
 
         name = name.removeprefix("transformer.")
