@@ -669,7 +669,7 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
         //const size_t nb_q_w = model.layers[il].q_w->nb[0];
 
         // layernorm1
-        {
+        if (ctx->proj_type != PROJECTOR_TYPE_GLM_4V) {
             cur = ggml_norm(ctx0, cur, eps);
 
             cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].ln_1_w),
@@ -722,13 +722,20 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
         // attention output
         cur = ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].o_w, cur), model.layers[il].o_b);
 
+        if (ctx->proj_type == PROJECTOR_TYPE_GLM_4V) {
+            cur = ggml_norm(ctx0, cur, eps);
+
+            cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].ln_1_w),
+                           model.layers[il].ln_1_b);
+        }
+
         // re-add the layer input, e.g., residual
         cur = ggml_add(ctx0, cur, embeddings);
 
         embeddings = cur; // embeddings = residual, cur = hidden_states
 
         // layernorm2
-        {
+        if (ctx->proj_type != PROJECTOR_TYPE_GLM_4V) {
             cur = ggml_norm(ctx0, cur, eps);
 
             cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].ln_2_w), model.layers[il].ln_2_b);
@@ -747,6 +754,12 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
 
         cur = ggml_mul_mat(ctx0, model.layers[il].ff_o_w, cur);
         cur = ggml_add(ctx0, cur, model.layers[il].ff_o_b);
+
+        if (ctx->proj_type == PROJECTOR_TYPE_GLM_4V) {
+            cur = ggml_norm(ctx0, cur, eps);
+
+            cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].ln_2_w), model.layers[il].ln_2_b);
+        }
 
         // residual 2
         cur = ggml_add(ctx0, embeddings, cur);
@@ -1034,7 +1047,7 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
     }
     // glm projector
     else if (ctx->has_glm_projector) {
-        if (ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE) {
+        if (ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE || ctx->proj_type == PROJECTOR_TYPE_GLM_4V) {
             size_t gridsz = (size_t)sqrt(embeddings->ne[1]);
             embeddings = ggml_cont(ctx0, ggml_permute(ctx0,embeddings,1,0,2,3));
             embeddings = ggml_reshape_3d(ctx0, embeddings, gridsz, gridsz, embeddings->ne[1]);
@@ -1397,6 +1410,7 @@ struct clip_model_loader {
                     vision_model.mm_model_ln_post_b = get_tensor(string_format(TN_MINICPMV_LN, "post", "bias"));
                 } break;
             case PROJECTOR_TYPE_GLM_EDGE:
+            case PROJECTOR_TYPE_GLM_4V:
                 {
                     vision_model.mm_model_adapter_conv_w = get_tensor(string_format(TN_GLM_ADAPER_CONV, "weight"));
                     vision_model.mm_model_adapter_conv_b = get_tensor(string_format(TN_GLM_ADAPER_CONV, "bias"));
@@ -2305,7 +2319,8 @@ int clip_n_patches_by_img(const struct clip_ctx * ctx, struct clip_image_f32 * i
 
     int n_patches = (params.image_size / params.patch_size) * (params.image_size / params.patch_size);
 
-    if (ctx->proj_type == PROJECTOR_TYPE_LDP || ctx->proj_type == PROJECTOR_TYPE_LDPV2 || ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE) {
+    if (ctx->proj_type == PROJECTOR_TYPE_LDP || ctx->proj_type == PROJECTOR_TYPE_LDPV2 ||
+        ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE || ctx->proj_type == PROJECTOR_TYPE_GLM_4V) {
         n_patches /= 4;
     } else if (ctx->proj_type == PROJECTOR_TYPE_RESAMPLER) {
         if (ctx->minicpmv_version == 2) {
@@ -2800,7 +2815,7 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
             return 3584;
         }
     }
-    if (ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE){
+    if (ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE || ctx->proj_type == PROJECTOR_TYPE_GLM_4V){
         return ctx->vision_model.mm_model_mlp_3_w->ne[1];
     }
     if (ctx->proj_type == PROJECTOR_TYPE_MERGER) {

@@ -11,8 +11,7 @@ model_parts = [
     model_file.startswith("model-") and model_file.endswith(".safetensors")
 ]
 
-vision_prefix = "transformer.vision"
-vision_prefix_gguf = "v"
+vision_prefix = "transformer.vision."
 
 output_file = "glm-clip.gguf"
 
@@ -23,8 +22,7 @@ for model_part in model_parts:
         for key in input.keys():
             if not key.startswith(vision_prefix):
                 continue
-            edit_key = key.replace(vision_prefix, vision_prefix_gguf)
-            model_tensors[edit_key] = input.get_tensor(key)
+            model_tensors[key] = input.get_tensor(key)
 
 # Tensor name map for tensors in each layer
 layer_map = {
@@ -36,7 +34,7 @@ layer_map = {
     "mlp.fc2": "ffn_up"
 }
 layer_prefix_torch = "transformer.layers"
-layer_prefix_gguf = "blk"
+layer_prefix_gguf = "v.blk"
 qkv_tensor_name = "attn_qkv"
 q_tensor_name = "attn_q"
 k_tensor_name = "attn_k"
@@ -44,10 +42,10 @@ v_tensor_name = "attn_v"
 
 # Tensor name map for tensors not in the transformer
 tensor_map = {
-    "patch_embedding.cls_embedding": "class_embd",
-    "patch_embedding.proj.weight": "patch_embd.weight",
-    "patch_embedding.proj.bias": "patch_embd.bias",
-    "patch_embedding.position_embedding": "position_embd",
+    "patch_embedding.cls_embedding": "v.class_embd",
+    "patch_embedding.proj.weight": "v.patch_embd.weight",
+    "patch_embedding.proj.bias": "v.patch_embd.bias",
+    "patch_embedding.position_embedding": "v.position_embd",
     "conv": "adapter.conv",
     "linear_proj.linear_proj": "adapter.linear.linear",
     "linear_proj.norm1": "adapter.linear.norm1",
@@ -63,7 +61,7 @@ key_snapshot = list(model_tensors.keys())
 unmapped_tensors = set()
 for key in key_snapshot:
     # Look for layer prefix
-    edit_key = key
+    edit_key = key.replace(vision_prefix, '')
     if layer_prefix_torch in key:
         edit_key = edit_key.replace(layer_prefix_torch, layer_prefix_gguf)
         flag = False
