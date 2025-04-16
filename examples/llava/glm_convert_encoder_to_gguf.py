@@ -22,6 +22,9 @@ for model_part in model_parts:
         for key in input.keys():
             if not key.startswith(vision_prefix):
                 continue
+            if "cls_embedding" in key:
+                print("Skipping class embedding")
+                continue
             model_tensors[key] = input.get_tensor(key)
 
 # Tensor name map for tensors in each layer
@@ -42,7 +45,6 @@ v_tensor_name = "attn_v"
 
 # Tensor name map for tensors not in the transformer
 tensor_map = {
-    "patch_embedding.cls_embedding": "v.class_embd",
     "patch_embedding.proj.weight": "v.patch_embd.weight",
     "patch_embedding.proj.bias": "v.patch_embd.bias",
     "patch_embedding.position_embedding": "v.position_embd",

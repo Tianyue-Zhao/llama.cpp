@@ -569,7 +569,7 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
     ggml_context_ptr ctx0_ptr(ggml_init(params));
     auto ctx0 = ctx0_ptr.get();
 
-    struct ggml_cgraph * gf = ggml_new_graph(ctx0);
+    struct ggml_cgraph * gf = ggml_new_graph_custom(ctx0, 3000, false);
 
     struct ggml_tensor * inp_raw = ggml_new_tensor_4d(ctx0, GGML_TYPE_F32, image_size_width, image_size_height, 3, batch_size);
     ggml_set_name(inp_raw, "inp_raw");
@@ -1477,7 +1477,7 @@ struct clip_model_loader {
     }
 
     void alloc_compute_meta() {
-        ctx_clip.buf_compute_meta.resize(GGML_DEFAULT_GRAPH_SIZE * ggml_tensor_overhead() + ggml_graph_overhead());
+        ctx_clip.buf_compute_meta.resize(6000 * ggml_tensor_overhead() + ggml_graph_overhead());
 
         // create a fake batch
         clip_image_f32_batch batch;
